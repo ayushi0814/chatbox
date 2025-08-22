@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chatbox 🌙 — Smart Q&A</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --bg:#f4f6f8; --card:#fff; --brand:#4a90e2; --brand-dark:#357abd;
+      --user:#0b79d0; --userText:#fff; --bot:#e9eef5; --text:#111; --muted:#666;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:var(--bg); min-height:100vh; display:grid; place-items:center;
+    }
+    .wrap{width:min(700px,92vw)}
+    .card{
+      background:var(--card); border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.08);
+      overflow:hidden;
+    }
+    header{
+      background:var(--brand); color:#fff; padding:14px 16px; display:flex; align-items:center; justify-content:space-between;
+    }
+    header .title{font-weight:700}
+    header .actions{display:flex; gap:8px}
+    button, .btn{
+      border:0; background:var(--brand); color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; font-weight:600;
+    }
+    button:hover{background:var(--brand-dark)}
+    .ghost{background:transparent; border:1px solid rgba(255,255,255,.6)}
+    .panel{padding:18px}
+    .stack{display:flex; flex-direction:column; gap:10px}
+    .row{display:flex; gap:10px; align-items:center}
+    input{
+      width:100%; padding:12px; border-radius:10px; border:1px solid #d6dbe3; outline:none; font-size:16px;
+    }
+    .chat{
+      padding:16px; height:460px; overflow:auto; background:#fafbff; border-top:1px solid #eef1f6; border-bottom:1px solid #eef1f6;
+    }
+    .msg{display:flex; margin:10px 0; gap:8px; align-items:flex-end; max-width:90%}
+    .msg.bot{flex-direction:row}
+    .msg.user{flex-direction:row-reverse; margin-left:auto}
+    .bubble{
+      padding:10px 12px; border-radius:14px; line-height:1.45; box-shadow:0 2px 6px rgba(0,0,0,.05); white-space:pre-wrap;
+    }
+    .bot .bubble{background:var(--bot); color:var(--text); border-top-left-radius:6px}
+    .user .bubble{background:var(--user); color:var(--userText); border-top-right-radius:6px}
+    .avatar{
+      width:32px; height:32px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700;
+      color:#fff; background:#10b981;
+    }
+    .user .avatar{background:#0ea5e9}
+    .footer{display:flex; gap:10px; padding:14px; background:#fff}
+    .typing{font-style:italic; color:var(--muted)}
+    .small{font-size:12px; color:var(--muted)}
+    .muted{color:#777}
+    .hint{font-size:12px; color:#6b7280; margin-top:4px}
+    .divider{height:1px; background:#eef1f6; margin:10px 0}
+    .link{color:#0969da; text-decoration:none}
+    .link:hover{text-decoration:underline}
+    @media (max-width:540px){
+      .chat{height:56vh}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="loginCard">
+      <header>
+        <div class="title">Chatbox 🌙 — Sign in</div>
+        <div class="actions"></div>
+      </header>
+      <div class="panel">
+        <div class="stack">
+          <input id="username" placeholder="Username (e.g., ayushi)" />
+          <input id="password" type="password" placeholder="Password (try 1234 😉)" />
+          <div class="row">
+            <button onclick="login()">Login</button>
+            <div class="hint">No server — this is a demo stored in your browser.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="chatCard" style="display:none;">
+      <header>
+        <div class="title" id="greeting">Chatbox 🌙</div>
+        <div class="actions">
+          <button class="ghost" onclick="clearHistory()">Clear Chat</button>
+          <button onclick="logout()">Logout</button>
+        </div>
+      </header>
+
+      <div id="chat" class="chat"></div>
+
+      <div class="footer">
+        <input id="input" placeholder="Ask me anything… (who is… what is… calculate 2*(3+4)^2 …)" />
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ========= Utilities & State ========= */
+const el = id => document.getElementById(id);
+const loginCard = el('loginCard');
+const chatCard  = el('chatCard');
+const chatEl    = el('chat');
+const inputEl   = el('input');
+let currentUser = localStorage.getItem('loggedInUser') || null;
+
+function historyKey(user){ return `chatHistory:${user}`; }
+
+function pushHistory(user, msg){
+  const key = historyKey(user);
+  const list = JSON.parse(localStorage.getItem(key) || '[]');
+  list.push(msg);
+  localStorage.setItem(key, JSON.stringify(list));
+}
+
+function loadHistory(user){
+  const key = historyKey(user);
+  return JSON.parse(localStorage.getItem(key) || '[]');
+}
+
+function clearHistory(){
+  if(!currentUser) return;
+  localStorage.removeItem(historyKey(currentUser));
+  chatEl.innerHTML='';
+  addBot(`Cleared your chat, ${currentUser}. What should we talk about next?`);
+}
+
+/* ========= Auth ========= */
+const DEMO_PASSWORD = '1234';
+
+function login(){
+  const u = el('username').value.trim();
+  const p = el('password').value;
+  if(!u || !p){ alert('Enter username and password'); return; }
+  if(p !== DEMO_PASSWORD){ alert('Wrong password for demo (try 1234)'); return; }
+
+  currentUser = u;
+  localStorage.setItem('loggedInUser', u);
+  bootChat();
+}
+
+function logout(){
+  localStorage.removeItem('loggedInUser');
+  currentUser = null;
+  chatEl.innerHTML='';
+  chatCard.style.display='none';
+  loginCard.style.display='block';
+}
+
+/* ========= UI helpers ========= */
+function addMessage(text, sender='bot'){
+  const node = document.createElement('div');
+  node.className = `msg ${sender}`;
+  node.innerHTML = `
+    <div class="avatar">${sender==='user' ? 'YOU' : 'AI'}</div>
+    <div class="bubble">${text}</div>
+  `;
+  chatEl.appendChild(node);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  if(currentUser){ pushHistory(currentUser, {sender, text}); }
+}
+
+function addBot(text){ addMessage(text, 'bot'); }
+function addUser(text){ addMessage(text, 'user'); }
+
+function showTyping(){
+  const node = document.createElement('div');
+  node.className = 'msg bot';
+  node.id = 'typing';
+  node.innerHTML = `
+    <div class="avatar">AI</div>
+    <div class="bubble typing">…typing</div>
+  `;
+  chatEl.appendChild(node);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+function hideTyping(){
+  const t = document.getElementById('typing');
+  if(t) t.remove();
+}
+
+/* ========= Smart Q&A Engine ========= */
+/* 1) Basic math evaluator (safe-ish): only numbers + operators + parentheses */
+function tryMathEval(q){
+  const cleaned = q.replace(/\s+/g,'')
+                   .replace(/×/g,'*').replace(/÷/g,'/')
+                   .replace(/\^/g,'**'); // enable ^ as power
+  if(!/^[0-9+*\-/().%^\s]*$/.test(cleaned)) return null;
+  try{
+    // eslint-disable-next-line no-new-func
+    const val = Function(`"use strict"; return (${cleaned});`)();
+    if(typeof val === 'number' && isFinite(val)) return String(val);
+    return null;
+  }catch(e){ return null; }
+}
+
+/* 2) Small local knowledge base (fast, offline) */
+const KB = [
+  { test:/\bhtml\b/i, ans:()=>`HTML (HyperText Markup Language) is the standard language used to structure content on the web — things like headings, paragraphs, links, images, and forms.`},
+  { test:/\bcss\b/i, ans:()=>`CSS (Cascading Style Sheets) controls presentation: layout, colors, spacing, animations. It pairs with HTML to make pages look great.`},
+  { test:/\bjavascript|js\b/i, ans:()=>`JavaScript is the programming language of the web. It handles interactivity (clicks, forms, dynamic content), works in browsers and on servers (Node.js).`},
+  { test:/\bmachine learning|ml\b/i, ans:()=>`Machine Learning is a set of methods that learn patterns from data to make predictions or decisions — like spam filters, recommendations, or image recognition.`},
+  { test:/\bhttp\b/i, ans:()=>`HTTP is the protocol for transferring data on the web. Your browser sends a request (GET/POST), the server replies with a response (status + headers + body).`},
+  { test:/\bgravity\b/i, ans:()=>`Gravity is the attractive force between masses. On Earth it gives weight; in space it guides orbits. Einstein described it as curvature of spacetime.`},
+  { test:/\bphotosynthesis\b/i, ans:()=>`Photosynthesis is how plants convert light energy, water, and CO₂ into glucose and oxygen — essentially storing sunlight as chemical energy.`},
+  { test:/\bapi\b/i, ans:()=>`An API is an interface for software to talk to other software. It exposes endpoints and data formats so apps can integrate reliably.`},
+  { test:/\bbig bang\b/i, ans:()=>`The Big Bang theory says the universe expanded from a hot, dense state ~13.8 billion years ago, cooling to form atoms, stars, and galaxies.`},
+];
+
+/* 3) Wikipedia fallback (online) */
+async function wikiSummary(query, signal){
+  // Clean query like: "who is Ada Lovelace?" -> "Ada Lovelace"
+  const norm = (query||'').replace(/^(who|what|tell me about|define)\s+is?\s*/i,'')
+                          .replace(/^(who|what|tell me about|define)\s*/i,'')
+                          .replace(/\?+$/,'')
+                          .trim();
+  if(!norm) return null;
+  const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(norm)}?redirect=true&origin=*`;
+  const r = await fetch(url, {signal});
+  if(!r.ok) return null;
+  const data = await r.json();
+  if(data.extract){
+    const title = data.title ? `**${data.title}**\n` : '';
+    return `${title}${data.extract}`;
+  }
+  return null;
+}
+
+/* 4) Conversational heuristics */
+function smallTalk(user, lower){
+  if(/\b(hi|hello|hey|hii|hyy)\b/.test(lower)){
+    return [
+      `Hi ${user || 'there'}! 👋 How can I help today?`,
+      `Hello${user? ' ' + user : ''}! What are you curious about?`,
+      `Hey! Need help with something?`
+    ];
+  }
+  if(/how are you/.test(lower)){
+    return [`I’m doing great, thanks for asking! How are you feeling today?`];
+  }
+  if(/\btime\b/.test(lower)){
+    return [`⏰ It’s ${new Date().toLocaleTimeString()}.`];
+  }
+  if(/\bdate\b/.test(lower)){
+    return [`📅 Today is ${new Date().toDateString()}.`];
+  }
+  if(/\bbye|goodbye|see you\b/.test(lower)){
+    return [`Goodbye! It was nice chatting. 👋`];
+  }
+  return null;
+}
+
+/* Core answer pipeline */
+async function answer(userText){
+  const user = currentUser;
+  const lower = userText.toLowerCase();
+
+  // 0) Small talk
+  const st = smallTalk(user, lower);
+  if(st) return pick(st);
+
+  // 1) Math evaluation like "calculate 2*(3+4)^2"
+  const mathCandidate = userText.replace(/^calculate\s*/i,'');
+  const math = tryMathEval(mathCandidate);
+  if(math !== null && /\d/.test(mathCandidate)){
+    return `Here you go: **${math}**`;
+  }
+
+  // 2) Local KB
+  for(const item of KB){
+    if(item.test.test(userText)) return item.ans(userText);
+  }
+
+  // 3) Wikipedia (with timeout + graceful fallback)
+  try{
+    const ctrl = new AbortController();
+    const t = setTimeout(()=>ctrl.abort(), 3500); // 3.5s budget
+    const w = await wikiSummary(userText, ctrl.signal);
+    clearTimeout(t);
+    if(w) return w;
+  }catch(e){
+    // ignore; we’ll fall back
+  }
+
+  // 4) Friendly fallback
+  const fallbacks = [
+    `That’s interesting 🤔 — can you share a bit more detail so I can give a better answer?`,
+    `I might need a little more context. What exactly would you like to know about that?`,
+    `Tell me more about what you’re after, and I’ll dig in!`
+  ];
+  return pick(fallbacks);
+}
+
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+/* ========= App Boot ========= */
+function bootChat(){
+  loginCard.style.display='none';
+  chatCard.style.display='block';
+  el('greeting').textContent = `Chatbox 🌙 — ${currentUser}`;
+  chatEl.innerHTML = '';
+
+  // load per-user chat
+  const history = loadHistory(currentUser);
+  if(history.length){
+    history.forEach(m => addMessage(m.text, m.sender));
+  }else{
+    addBot(`Hello ${currentUser}! Ask me anything — I can explain topics, do quick math, or look things up for you.`);
+  }
+}
+
+/* ========= Message Flow ========= */
+async function sendMessage(){
+  const text = inputEl.value.trim();
+  if(!text) return;
+  addUser(text);
+  inputEl.value='';
+
+  showTyping();
+  let reply;
+  try{
+    reply = await answer(text);
+  }catch(e){
+    reply = `Oops, I hit a snag. Want to try rephrasing that?`;
+  }
+  hideTyping();
+  addBot(reply);
+}
+
+/* ========= Init ========= */
+if(currentUser){ bootChat(); }
+inputEl.addEventListener('keydown', e=>{ if(e.key==='Enter') sendMessage(); });
+
+</script>
+</body>
+</html>
+
